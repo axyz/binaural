@@ -1,0 +1,10 @@
+[package]
+name = "bbeats"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+directories = "6.0.0"
+kdl = "6.7.1"
+rodio = "0.21.1"
+signal-hook = "0.4.4"
