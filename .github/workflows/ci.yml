@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev pkg-config
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+      - name: Check formatting
+        run: cargo +stable fmt --all -- --check
+      - name: Run Clippy
+        run: cargo +stable clippy --locked --all-targets --all-features -- -D warnings
+      - name: Run tests
+        run: cargo +stable test --locked --all-targets --all-features
+      - name: Build and smoke test
+        run: |
+          cargo +stable build --release --locked
+          ./target/release/binaural --version
+          ./target/release/binaural presets
+
+  macos:
+    name: macOS
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Run tests
+        run: cargo +stable test --locked --all-targets --all-features
+      - name: Build and smoke test
+        run: |
+          cargo +stable build --release --locked
+          ./target/release/binaural --version
+          ./target/release/binaural presets
+          output="$(env -u XDG_RUNTIME_DIR ./target/release/binaural msg status 2>&1 || true)"
+          grep -q 'connecting to binaural daemon' <<< "$output"
+
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev pkg-config
+      - name: Install Rust 1.95
+        run: rustup toolchain install 1.95.0 --profile minimal
+      - name: Test minimum Rust version
+        run: cargo +1.95.0 test --locked --all-targets --all-features

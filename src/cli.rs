@@ -27,6 +27,7 @@ use std::{
 
 #[derive(Parser)]
 #[command(
+    version,
     about = "Experimental binaural-beat player; headphones required",
     args_conflicts_with_subcommands = true
 )]
@@ -102,10 +103,21 @@ impl From<PlaybackArgs> for Options {
 }
 
 fn socket_path() -> Result<PathBuf> {
-    env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .map(|path| path.join("bbeats.sock"))
-        .ok_or_else(|| anyhow!("XDG_RUNTIME_DIR is required for daemon mode"))
+    if let Some(runtime_dir) = env::var_os("XDG_RUNTIME_DIR").filter(|path| !path.is_empty()) {
+        return Ok(PathBuf::from(runtime_dir).join("binaural.sock"));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        env::var_os("TMPDIR")
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
+            .map(|path| path.join("binaural.sock"))
+            .ok_or_else(|| anyhow!("XDG_RUNTIME_DIR or TMPDIR is required for daemon mode"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(anyhow!("XDG_RUNTIME_DIR is required for daemon mode"))
+    }
 }
 
 fn command_options(preset: &str) -> Options {
@@ -284,7 +296,7 @@ impl PlaybackState {
                 }
                 sink.clear();
                 sink.set_volume(1.0);
-                eprintln!("bbeats: stopped");
+                eprintln!("binaural: stopped");
                 Ok("ok stopped".into())
             }
             Message::Pause => {
@@ -293,7 +305,7 @@ impl PlaybackState {
                 }
                 sink.pause();
                 sink.set_volume(1.0);
-                eprintln!("bbeats: paused");
+                eprintln!("binaural: paused");
                 Ok("ok paused".into())
             }
             Message::Play => {
@@ -303,13 +315,13 @@ impl PlaybackState {
                 if sink.is_paused() {
                     fade_in(sink);
                 }
-                eprintln!("bbeats: preset={}; playing", self.preset);
+                eprintln!("binaural: preset={}; playing", self.preset);
                 Ok("ok playing".into())
             }
             Message::Preset { name } => {
                 self.replace(sink, config, command_options(&name))?;
                 fade_in(sink);
-                eprintln!("bbeats: preset={}; playing", self.preset);
+                eprintln!("binaural: preset={}; playing", self.preset);
                 Ok("ok playing".into())
             }
             Message::Volume { value } => {
@@ -319,7 +331,7 @@ impl PlaybackState {
                 let mut next = self.current.clone();
                 next.volume = Some(value);
                 self.replace(sink, config, next)?;
-                eprintln!("bbeats: volume={:.2}; paused", self.audio.volume);
+                eprintln!("binaural: volume={:.2}; paused", self.audio.volume);
                 Ok("ok".into())
             }
             Message::Noise { kind, volume } => {
@@ -333,7 +345,7 @@ impl PlaybackState {
                 }
                 self.replace(sink, config, next)?;
                 eprintln!(
-                    "bbeats: noise={} volume={:.2}; paused",
+                    "binaural: noise={} volume={:.2}; paused",
                     self.audio.noise.as_str(),
                     self.audio.noise_volume
                 );
@@ -347,12 +359,12 @@ impl PlaybackState {
                 if playing {
                     fade_in(sink);
                 }
-                eprintln!("bbeats: configuration reloaded; preset={}", self.preset);
+                eprintln!("binaural: configuration reloaded; preset={}", self.preset);
                 Ok("ok reloaded".into())
             }
             Message::Shutdown => {
                 shutdown.store(true, Ordering::Relaxed);
-                eprintln!("bbeats: shutdown requested");
+                eprintln!("binaural: shutdown requested");
                 Ok("ok shutting down".into())
             }
         }
@@ -424,7 +436,7 @@ fn daemon() -> Result<()> {
         .set_nonblocking(true)
         .context("configuring daemon socket")?;
     eprintln!(
-        "bbeats: daemon started; socket={}; preset={}; paused",
+        "binaural: daemon started; socket={}; preset={}; paused",
         path.display(),
         config.default
     );
@@ -440,7 +452,7 @@ fn daemon() -> Result<()> {
                 if let Err(error) =
                     handle_client(client, &mut state, &sink, &mut config, shutdown.as_ref())
                 {
-                    eprintln!("bbeats: IPC client error: {error:#}");
+                    eprintln!("binaural: IPC client error: {error:#}");
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -450,7 +462,7 @@ fn daemon() -> Result<()> {
         }
     }
     sink.stop();
-    eprintln!("bbeats: daemon stopped");
+    eprintln!("binaural: daemon stopped");
     Ok(())
 }
 
@@ -484,7 +496,8 @@ impl Drop for SocketGuard {
 
 fn message(command: Message) -> Result<()> {
     let command = format_message(command)?;
-    let mut stream = UnixStream::connect(socket_path()?).context("connecting to bbeats daemon")?;
+    let mut stream =
+        UnixStream::connect(socket_path()?).context("connecting to binaural daemon")?;
     stream
         .set_read_timeout(Some(IPC_TIMEOUT))
         .context("setting daemon reply timeout")?;
@@ -556,7 +569,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        env::temp_dir().join(format!("bbeats-{}-{unique}.sock", std::process::id()))
+        env::temp_dir().join(format!("binaural-{}-{unique}.sock", std::process::id()))
     }
 
     #[test]
@@ -612,8 +625,8 @@ mod tests {
     #[test]
     fn rejects_playback_options_with_subcommands() {
         for arguments in [
-            ["bbeats", "presets", "--volume", "0.2"],
-            ["bbeats", "--volume", "0.2", "presets"],
+            ["binaural", "presets", "--volume", "0.2"],
+            ["binaural", "--volume", "0.2", "presets"],
         ] {
             assert!(Cli::try_parse_from(arguments).is_err());
         }

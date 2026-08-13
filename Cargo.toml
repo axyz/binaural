@@ -1,7 +1,16 @@
 [package]
-name = "bbeats"
+name = "binaural"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.95"
+description = "Binaural-beat audio player for Unix-like systems"
+license = "MIT"
+repository = "https://github.com/axyz/binaural"
+homepage = "https://github.com/axyz/binaural"
+readme = "README.md"
+exclude = [".github/", ".gitignore", "RELEASING.md"]
+keywords = ["audio", "binaural", "cli"]
+categories = ["command-line-utilities", "multimedia::audio"]
 
 [dependencies]
 anyhow = "1.0.104"

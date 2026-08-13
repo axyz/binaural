@@ -4,7 +4,7 @@ use directories::ProjectDirs;
 use kdl::{KdlDocument, KdlNode, KdlValue};
 use std::{fs, path::PathBuf};
 
-const EXAMPLE: &str = r#"// All settings optional. `bbeats` uses default preset.
+const EXAMPLE: &str = r#"// All settings optional. `binaural` uses default preset.
 default preset="calm"
 
 audio {
@@ -122,7 +122,7 @@ pub(super) struct Options {
 }
 
 fn config_path() -> Result<PathBuf> {
-    ProjectDirs::from("dev", "bbeats", "bbeats")
+    ProjectDirs::from("dev", "binaural", "binaural")
         .map(|dirs| dirs.config_dir().join("config.kdl"))
         .ok_or_else(|| anyhow!("cannot determine config directory"))
 }
