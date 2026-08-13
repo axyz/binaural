@@ -58,21 +58,30 @@ Config file:
 - macOS: `~/Library/Application Support/dev.binaural.binaural/config.kdl`
 
 ```kdl
+// Used when no --preset is passed.
 default preset="evening"
 
+// Defaults for every preset.
 audio {
   volume 0.10
-  fade 8
   noise "off" { volume 0.04 }
 }
 
+// New tone, inheriting global audio defaults.
 preset "reading" {
   tone carrier=220 beat=10
   volume 0.07
 }
+
+// Inherit tone and audio from a built-in or earlier custom preset.
+preset "evening" inherits="wind-down" {
+  noise "brown" { volume 0.03 }
+}
 ```
 
-CLI flags override config values. Frequencies use Hz, volume uses normalized gain, and fade uses seconds.
+`default` selects startup preset. `audio` supplies global `volume`, `noise`, and noise `volume`. A `preset` either defines `tone carrier=… beat=…` or `inherits` a built-in or earlier custom preset; preset audio settings override inherited values. Noise types: `off`, `white`, `pink`, `brown`.
+
+CLI flags override config values. Frequencies use Hz and volume uses normalized gain.
 
 ## Presets
 
