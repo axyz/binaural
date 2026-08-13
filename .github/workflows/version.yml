@@ -135,7 +135,11 @@ jobs:
           fi
           previous="$version"
           if [[ ! "$BEFORE_SHA" =~ ^0+$ ]]; then
-            previous="$(git show "${BEFORE_SHA}:Cargo.toml" | python3 -c 'import sys, tomllib; print(tomllib.loads(sys.stdin.read())["package"]["version"])')"
+            previous="$(git show "${BEFORE_SHA}:Cargo.toml" | awk '
+              $0 == "[package]" { package = 1; next }
+              package && /^\[/ { exit }
+              package && /^version = "/ { gsub(/^version = "|"$/, ""); print; exit }
+            ')"
           fi
           tag="v$version"
           if [[ "$version" == "$previous" ]] || gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --silent >/dev/null 2>&1; then
