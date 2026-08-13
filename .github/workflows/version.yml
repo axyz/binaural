@@ -1,0 +1,158 @@
+name: Version
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: version-${{ github.event_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare:
+    name: Prepare release
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev pkg-config
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Calculate version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          current="$(cargo +stable metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "binaural") | .version')"
+          if [[ ! "$current" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "unsupported version: $current" >&2
+            exit 1
+          fi
+          IFS=. read -r major minor patch <<< "$current"
+          case "$BUMP" in
+            patch) next="$major.$minor.$((patch + 1))" ;;
+            minor) next="$major.$((minor + 1)).0" ;;
+            major) next="$((major + 1)).0.0" ;;
+          esac
+          tag="v$next"
+          branch="release/$tag"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "$tag already exists" >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null 2>&1; then
+            echo "$branch already exists" >&2
+            exit 1
+          fi
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+      - name: Update version
+        env:
+          CURRENT_VERSION: ${{ steps.version.outputs.current }}
+          NEXT_VERSION: ${{ steps.version.outputs.next }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path("Cargo.toml")
+          text = path.read_text()
+          old = f'version = "{os.environ["CURRENT_VERSION"]}"'
+          new = f'version = "{os.environ["NEXT_VERSION"]}"'
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one {old!r} entry")
+          path.write_text(text.replace(old, new, 1))
+          PY
+          cargo +stable check
+          cargo +stable check --locked
+      - name: Create release pull request
+        env:
+          BRANCH: ${{ steps.version.outputs.branch }}
+          CURRENT_VERSION: ${{ steps.version.outputs.current }}
+          GH_TOKEN: ${{ github.token }}
+          NEXT_VERSION: ${{ steps.version.outputs.next }}
+        run: |
+          git switch -c "$BRANCH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock
+          git diff --cached --check
+          git commit -m "Release $NEXT_VERSION"
+          git push --set-upstream origin "$BRANCH"
+          pr_url="$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" --title "Release $NEXT_VERSION" --body "Bumps binaural from $CURRENT_VERSION to $NEXT_VERSION. Merge after CI passes; merge triggers release.")"
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
+          echo "Release PR: $pr_url" >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Release merged version
+    if: github.event_name == 'push'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check version
+        id: version
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "binaural") | .version')"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "unsupported version: $version" >&2
+            exit 1
+          fi
+          previous="$version"
+          if [[ ! "$BEFORE_SHA" =~ ^0+$ ]]; then
+            previous="$(git show "${BEFORE_SHA}:Cargo.toml" | python3 -c 'import sys, tomllib; print(tomllib.loads(sys.stdin.read())["package"]["version"])')"
+          fi
+          tag="v$version"
+          if [[ "$version" == "$previous" ]] || gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --silent >/dev/null 2>&1; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Create tag
+        if: steps.version.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA"
+      - name: Start release
+        if: steps.version.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f tag="$TAG"
