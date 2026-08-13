@@ -1,6 +1,6 @@
 # binaural
 
-Binaural-beat player for Linux and macOS. Stereo headphones required. Windows is not supported.
+Binaural-beat player for Linux and macOS. Stereo headphones required.
 
 ## Install
 
@@ -94,10 +94,3 @@ cargo fmt --all -- --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all-targets --all-features
 ```
-
-## References
-
-- [PLOS systematic review (2023)](https://doi.org/10.1371/journal.pone.0286023)
-- [Meta-analysis (2019)](https://pubmed.ncbi.nlm.nih.gov/30073406/)
-- [Pilot adult-ADHD randomized controlled trial](https://www.cambridge.org/core/journals/european-psychiatry/article/pilot-addon-randomizedcontrolled-trial-evaluating-the-effect-of-binaural-beats-on-study-performance-mindwandering-and-core-symptoms-of-adult-adhd-patients/33084BDFD5C5EB2B838AA0C147F54C19)
-- [WHO safe listening](https://www.who.int/news-room/questions-and-answers/item/deafness-and-hearing-loss-safe-listening)
