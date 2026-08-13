@@ -4,24 +4,25 @@ use directories::ProjectDirs;
 use kdl::{KdlDocument, KdlNode, KdlValue};
 use std::{fs, path::PathBuf};
 
-const EXAMPLE: &str = r#"// All settings optional. `binaural` uses default preset.
-default preset="calm"
+const EXAMPLE: &str = r#"// All settings optional. `binaural` uses `default` when no preset is selected.
+default preset="evening"
 
+// Global audio settings. Custom presets inherit these unless they override them.
 audio {
   volume 0.10
-  fade 8
   noise "off" { volume 0.04 }
 }
 
-// Custom presets inherit global audio. `inherits` starts from a built-in or earlier custom preset.
-// preset "reading" {
-//   tone carrier=220 beat=10
-//   volume 0.07
-// }
-// preset "evening" inherits="wind-down" {
-//   fade 12
-//   noise "brown" { volume 0.03 }
-// }
+// A custom preset needs a tone unless it inherits one.
+preset "reading" {
+  tone carrier=220 beat=10
+  volume 0.07
+}
+
+// `inherits` refers to a built-in or earlier custom preset.
+preset "evening" inherits="wind-down" {
+  noise "brown" { volume 0.03 }
+}
 "#;
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -52,13 +53,11 @@ pub(super) struct Audio {
     pub(super) volume: f32,
     pub(super) noise: Noise,
     pub(super) noise_volume: f32,
-    pub(super) fade: f64,
 }
 const AUDIO: Audio = Audio {
     volume: 0.10,
     noise: Noise::Off,
     noise_volume: 0.04,
-    fade: 8.0,
 };
 
 pub(super) struct Preset {
@@ -118,7 +117,6 @@ pub(super) struct Options {
     pub(super) volume: Option<f32>,
     pub(super) noise: Option<Noise>,
     pub(super) noise_volume: Option<f32>,
-    pub(super) fade: Option<f64>,
 }
 
 fn config_path() -> Result<PathBuf> {
@@ -226,7 +224,7 @@ fn validate_audio_nodes(node: &KdlNode) -> Result<()> {
     };
     for nested in document.nodes() {
         match nested.name().value() {
-            "volume" | "fade" => validate_node(nested, 1, &[], &[])?,
+            "volume" => validate_node(nested, 1, &[], &[])?,
             "noise" => {
                 validate_node(nested, 1, &[], &["volume"])?;
                 if let Some(volume) = child(nested, "volume") {
@@ -245,9 +243,6 @@ fn parse_audio(node: &KdlNode, base: Audio) -> Result<Audio> {
     if let Some(node) = child(node, "volume") {
         audio.volume = volume(node, "volume")?;
     }
-    if let Some(node) = child(node, "fade") {
-        audio.fade = argument(node, 0, "fade")?;
-    }
     if let Some(node) = child(node, "noise") {
         audio.noise = node
             .get(0)
@@ -259,11 +254,7 @@ fn parse_audio(node: &KdlNode, base: Audio) -> Result<Audio> {
             audio.noise_volume = volume(volume_node, "noise volume")?;
         }
     }
-    if !(0.0..=0.25).contains(&audio.volume)
-        || !(0.0..=0.25).contains(&audio.noise_volume)
-        || !audio.fade.is_finite()
-        || audio.fade < 0.0
-    {
+    if !(0.0..=0.25).contains(&audio.volume) || !(0.0..=0.25).contains(&audio.noise_volume) {
         return Err(anyhow!("audio values out of range"));
     }
     Ok(audio)
@@ -280,9 +271,6 @@ fn validate_playback(left: f64, right: f64, audio: Audio) -> Result<()> {
     }
     if !(0.0..=0.25).contains(&audio.volume) || !(0.0..=0.25).contains(&audio.noise_volume) {
         return Err(anyhow!("volume values must be 0..=0.25"));
-    }
-    if !audio.fade.is_finite() || audio.fade < 0.0 {
-        return Err(anyhow!("fade must be a finite non-negative number"));
     }
     Ok(())
 }
@@ -312,7 +300,7 @@ fn parse_config(text: &str) -> Result<Config> {
                     .into();
             }
             "audio" => {
-                validate_node(node, 0, &[], &["volume", "fade", "noise"])?;
+                validate_node(node, 0, &[], &["volume", "noise"])?;
                 if has_audio {
                     return Err(anyhow!("duplicate audio node"));
                 }
@@ -320,7 +308,7 @@ fn parse_config(text: &str) -> Result<Config> {
                 config.audio = parse_audio(node, AUDIO)?;
             }
             "preset" => {
-                validate_node(node, 1, &["inherits"], &["tone", "volume", "fade", "noise"])?;
+                validate_node(node, 1, &["inherits"], &["tone", "volume", "noise"])?;
                 validate_audio_nodes(node)?;
                 if let Some(tone) = child(node, "tone") {
                     validate_node(tone, 0, &["carrier", "beat"], &[])?;
@@ -441,9 +429,6 @@ pub(super) fn resolve(options: &Options, config: &Config) -> Result<(f64, f64, A
     if let Some(noise_volume) = options.noise_volume {
         audio.noise_volume = noise_volume;
     }
-    if let Some(fade) = options.fade {
-        audio.fade = fade;
-    }
     validate_playback(left, right, audio)?;
     Ok((left, right, audio))
 }
@@ -470,24 +455,6 @@ mod tests {
         )
         .unwrap();
         assert!((config.presets[0].audio.volume - 0.2).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn rejects_non_finite_cli_fade() {
-        let config = parse_config("").unwrap();
-        for fade in [f64::NAN, f64::INFINITY] {
-            assert!(
-                resolve(
-                    &Options {
-                        fade: Some(fade),
-                        ..Options::default()
-                    },
-                    &config,
-                )
-                .is_err(),
-                "accepted invalid fade: {fade}"
-            );
-        }
     }
 
     #[test]
