@@ -4,7 +4,7 @@ use crate::{
 };
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Args, Parser, Subcommand};
-use rodio::{OutputStreamBuilder, Sink};
+use rodio::{DeviceSinkBuilder, Player};
 use signal_hook::{
     consts::signal::{SIGINT, SIGTERM},
     flag,
@@ -134,7 +134,7 @@ const MAX_MESSAGE_BYTES: usize = 4_096;
 const COMMAND_HELP: &str =
     "commands: status stop pause play preset NAME volume N noise TYPE [VOLUME] reload shutdown";
 
-fn load(sink: &Sink, config: &Config, options: &Options) -> Result<(String, Audio)> {
+fn load(sink: &Player, config: &Config, options: &Options) -> Result<(String, Audio)> {
     let preset = options
         .preset
         .as_deref()
@@ -151,14 +151,14 @@ fn load(sink: &Sink, config: &Config, options: &Options) -> Result<(String, Audi
     Ok((preset, audio))
 }
 
-fn fade_out(sink: &Sink) {
+fn fade_out(sink: &Player) {
     for step in (0..CONTROL_STEPS).rev() {
         sink.set_volume(step as f32 / CONTROL_STEPS as f32);
         thread::sleep(CONTROL_FADE / CONTROL_STEPS);
     }
 }
 
-fn fade_in(sink: &Sink) {
+fn fade_in(sink: &Player) {
     sink.set_volume(0.0);
     sink.play();
     for step in 1..=CONTROL_STEPS {
@@ -248,7 +248,7 @@ struct PlaybackState {
 }
 
 impl PlaybackState {
-    fn new(sink: &Sink, config: &Config) -> Result<Self> {
+    fn new(sink: &Player, config: &Config) -> Result<Self> {
         let current = command_options(&config.default);
         let (preset, audio) = load(sink, config, &current)?;
         Ok(Self {
@@ -258,7 +258,7 @@ impl PlaybackState {
         })
     }
 
-    fn replace(&mut self, sink: &Sink, config: &Config, next: Options) -> Result<()> {
+    fn replace(&mut self, sink: &Player, config: &Config, next: Options) -> Result<()> {
         let (preset, audio) = load(sink, config, &next)?;
         self.current = next;
         self.preset = preset;
@@ -266,7 +266,7 @@ impl PlaybackState {
         Ok(())
     }
 
-    fn reload(&mut self, sink: &Sink, config: &Config) -> Result<()> {
+    fn reload(&mut self, sink: &Player, config: &Config) -> Result<()> {
         let (preset, audio) = load(sink, config, &self.current)?;
         self.preset = preset;
         self.audio = audio;
@@ -276,7 +276,7 @@ impl PlaybackState {
     fn apply(
         &mut self,
         command: Message,
-        sink: &Sink,
+        sink: &Player,
         config: &mut Config,
         shutdown: &AtomicBool,
     ) -> Result<String> {
@@ -378,7 +378,7 @@ fn reply(stream: &mut UnixStream, text: &str) -> Result<()> {
 fn handle_client(
     mut client: UnixStream,
     state: &mut PlaybackState,
-    sink: &Sink,
+    sink: &Player,
     config: &mut Config,
     shutdown: &AtomicBool,
 ) -> Result<()> {
@@ -443,8 +443,9 @@ fn daemon() -> Result<()> {
     let shutdown = Arc::new(AtomicBool::new(false));
     flag::register(SIGINT, Arc::clone(&shutdown))?;
     flag::register(SIGTERM, Arc::clone(&shutdown))?;
-    let stream = OutputStreamBuilder::open_default_stream().context("opening audio output")?;
-    let sink = Sink::connect_new(stream.mixer());
+    let mut stream = DeviceSinkBuilder::open_default_sink().context("opening audio output")?;
+    stream.log_on_drop(false);
+    let sink = Player::connect_new(stream.mixer());
     let mut state = PlaybackState::new(&sink, &config)?;
     while !shutdown.load(Ordering::Relaxed) {
         match listener.accept() {
@@ -552,8 +553,9 @@ pub(super) fn run() -> Result<()> {
         audio.noise_volume,
         audio.fade,
     );
-    let stream = OutputStreamBuilder::open_default_stream()?;
-    let sink = Sink::connect_new(stream.mixer());
+    let mut stream = DeviceSinkBuilder::open_default_sink()?;
+    stream.log_on_drop(false);
+    let sink = Player::connect_new(stream.mixer());
     sink.append(Beat::new(left, right, audio));
     sink.sleep_until_end();
     Ok(())

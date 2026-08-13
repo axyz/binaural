@@ -3,9 +3,14 @@ use rodio::{
     Source,
     source::noise::{Brownian, Pink, WhiteUniform},
 };
-use std::f64::consts::TAU;
+use std::{
+    f64::consts::TAU,
+    num::{NonZeroU16, NonZeroU32},
+};
 
 const RATE: u32 = 44_100;
+const SAMPLE_RATE: NonZeroU32 = NonZeroU32::new(RATE).unwrap();
+const CHANNELS: NonZeroU16 = NonZeroU16::new(2).unwrap();
 
 enum NoiseSource {
     Off,
@@ -18,9 +23,9 @@ impl NoiseSource {
     fn new(noise: Noise) -> Self {
         match noise {
             Noise::Off => Self::Off,
-            Noise::White => Self::White(WhiteUniform::new(RATE)),
-            Noise::Pink => Self::Pink(Pink::new(RATE)),
-            Noise::Brown => Self::Brown(Brownian::new(RATE)),
+            Noise::White => Self::White(WhiteUniform::new(SAMPLE_RATE)),
+            Noise::Pink => Self::Pink(Pink::new(SAMPLE_RATE)),
+            Noise::Brown => Self::Brown(Brownian::new(SAMPLE_RATE)),
         }
     }
 
@@ -96,12 +101,12 @@ impl Source for Beat {
         None
     }
 
-    fn channels(&self) -> u16 {
-        2
+    fn channels(&self) -> NonZeroU16 {
+        CHANNELS
     }
 
-    fn sample_rate(&self) -> u32 {
-        RATE
+    fn sample_rate(&self) -> NonZeroU32 {
+        SAMPLE_RATE
     }
 
     fn total_duration(&self) -> Option<std::time::Duration> {
