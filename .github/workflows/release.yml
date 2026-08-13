@@ -3,12 +3,19 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag
+        required: true
+        type: string
 
 permissions: {}
 
 env:
   CARGO_INCREMENTAL: "0"
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   prepare:
@@ -24,6 +31,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ env.RELEASE_TAG }}
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install --yes libasound2-dev pkg-config
       - name: Install Rust
@@ -33,9 +41,11 @@ jobs:
         run: |
           version="$(cargo +stable metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "binaural") | .version')"
           test -n "$version"
-          test "$GITHUB_REF_NAME" = "v$version"
+          test "$RELEASE_TAG" = "v$version"
           git fetch origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          tag_commit="$(git rev-list -n 1 "$RELEASE_TAG")"
+          test -n "$tag_commit"
+          git merge-base --is-ancestor "$tag_commit" origin/main
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Validate source package
         run: |
@@ -47,8 +57,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --draft --verify-tag --generate-notes --title "$RELEASE_TAG"
           fi
 
   build:
@@ -74,6 +84,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ env.RELEASE_TAG }}
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes libasound2-dev pkg-config
@@ -98,7 +109,7 @@ jobs:
       - name: Upload archive
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" "${{ steps.package.outputs.asset }}" --clobber
+        run: gh release upload "$RELEASE_TAG" "${{ steps.package.outputs.asset }}" --clobber
 
   publish-crate:
     name: Publish crate
@@ -113,6 +124,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ env.RELEASE_TAG }}
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install --yes libasound2-dev pkg-config
       - name: Install Rust
@@ -122,7 +134,7 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          http_code="$(curl --silent --output /dev/null --write-out '%{http_code}' "https://crates.io/api/v1/crates/binaural/$VERSION")"
+          http_code="$(curl --silent --output /dev/null --write-out '%{http_code}' --user-agent 'binaural-release-workflow/1.0 (+https://github.com/axyz/binaural)' "https://crates.io/api/v1/crates/binaural/$VERSION")"
           case "$http_code" in
             200) echo "published=true" >> "$GITHUB_OUTPUT" ;;
             404) echo "published=false" >> "$GITHUB_OUTPUT" ;;
@@ -151,7 +163,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir dist
-          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern 'binaural-*.tar.gz' --dir dist
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern 'binaural-*.tar.gz' --dir dist
           (cd dist && sha256sum -- *.tar.gz > SHA256SUMS)
-          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" dist/SHA256SUMS --clobber
-          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" dist/SHA256SUMS --clobber
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
