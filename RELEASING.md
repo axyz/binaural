@@ -2,6 +2,14 @@
 
 Releases use tags matching `v<version>` from `Cargo.toml`. GitHub Actions builds Linux and macOS archives, publishes the crate when needed, creates checksums, then publishes the GitHub Release.
 
+## Repository setup
+
+Configure these once in GitHub repository settings:
+
+- Create a `release` environment.
+- Add a `main` branch ruleset requiring pull requests and the `Linux`, `macOS`, and `MSRV` status checks.
+- Block force pushes and branch deletion.
+
 ## First crates.io release
 
 Trusted Publishing requires an existing crate. Publish `0.1.0` once with a scoped crates.io API token:
