@@ -3,6 +3,7 @@ use crate::{
     config::{self, BUILT_INS, Noise, Options},
     daemon,
     ipc::Message,
+    tui,
 };
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
@@ -32,6 +33,8 @@ enum Command {
     },
     /// List built-in and configured presets.
     Presets,
+    /// Run interactive local player.
+    Tui,
 }
 
 #[derive(Args)]
@@ -92,6 +95,7 @@ pub(super) fn run() -> Result<()> {
         Some(Command::Daemon) => return daemon::run(),
         Some(Command::Msg { command }) => return daemon::message(command),
         Some(Command::Presets) => return run_presets(),
+        Some(Command::Tui) => return tui::run(cli.playback.into()),
         None => {}
     }
     let config = config::load()?;
