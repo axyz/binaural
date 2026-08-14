@@ -30,6 +30,7 @@ binaural --preset study
 binaural --preset wind-down --noise brown
 binaural --carrier 400 --beat 8 --volume 0.08
 binaural presets
+binaural tui
 ```
 
 Run `binaural --help` for all options.

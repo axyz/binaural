@@ -4,6 +4,7 @@ mod config;
 mod daemon;
 mod ipc;
 mod playback;
+mod tui;
 
 fn main() {
     if let Err(error) = cli::run() {
